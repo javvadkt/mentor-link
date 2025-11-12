@@ -1,0 +1,5 @@
+{
+  "name": "MentorLink",
+  "description": "An integrated web platform for educational institutions to structure, track, and enhance the mentor-mentee relationship, featuring distinct roles for Admins, Mentors, and Mentees.",
+  "requestFramePermissions": []
+}
