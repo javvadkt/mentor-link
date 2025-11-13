@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { APP_NAME, Icons } from '../../constants';
@@ -71,13 +72,9 @@ const ProfileMenu: React.FC = () => {
 export const AdminPortal: React.FC = () => {
     const { logout, user, isLoggingOut } = useAuth();
     const [currentPage, setCurrentPage] = useState<AdminPage>('dashboard');
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     const handleNavClick = (page: AdminPage) => {
         setCurrentPage(page);
-        if (window.innerWidth < 768) { // md breakpoint
-            setIsSidebarOpen(false);
-        }
     };
 
     const adminNavItems: NavItemType[] = [
@@ -138,19 +135,13 @@ export const AdminPortal: React.FC = () => {
 
     return (
         <div className="min-h-screen md:flex bg-gray-100 dark:bg-gray-900">
-            {/* Mobile sidebar overlay */}
-            <div className={`fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden ${isSidebarOpen ? 'block' : 'hidden'}`} onClick={() => setIsSidebarOpen(false)}></div>
-
             {/* Sidebar */}
-            <aside className={`fixed inset-y-0 left-0 w-64 bg-white dark:bg-gray-800 shadow-md flex flex-col transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 transition-transform duration-200 ease-in-out z-30`}>
+            <aside className="hidden w-64 bg-white dark:bg-gray-800 shadow-md md:flex flex-col z-30">
                 {sidebarContent}
             </aside>
             
             <main className="flex-1 flex flex-col md:h-screen">
                 <header className="md:hidden bg-white dark:bg-gray-800 shadow-sm p-4 flex justify-between items-center sticky top-0 z-10">
-                     <button onClick={() => setIsSidebarOpen(true)} className="p-1 text-gray-600 dark:text-gray-300">
-                        {Icons.menu}
-                    </button>
                     <h1 className="text-xl font-bold text-gray-900 dark:text-white capitalize">{currentPage.replace('-', ' ')}</h1>
                     <ProfileMenu />
                 </header>
