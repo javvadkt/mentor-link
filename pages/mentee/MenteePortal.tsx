@@ -11,16 +11,19 @@ import { MyPoints } from './MyPoints';
 import { Spinner } from '../../components/Spinner';
 import { BottomNavBar, NavItemType } from '../../components/BottomNavBar';
 import { Mentee } from '../../types';
+import { Feedback } from '../../components/Feedback';
+import { supabase } from '../../services/supabaseClient';
 
 type MenteePage = 'dashboard' | 'assignments' | 'meetings' | 'messages' | 'points' | 'account';
 
-const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void; }> = ({ icon, label, isActive, onClick }) => (
+const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void; hasNotification?: boolean; }> = ({ icon, label, isActive, onClick, hasNotification }) => (
     <button
         onClick={onClick}
-        className={`flex items-center space-x-3 w-full p-3 rounded-lg text-left transition-colors duration-200 ${isActive ? 'bg-primary text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+        className={`relative flex items-center space-x-3 w-full p-3 rounded-lg text-left transition-colors duration-200 ${isActive ? 'bg-primary text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
     >
         {icon}
         <span>{label}</span>
+        {hasNotification && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>}
     </button>
 );
 
@@ -70,8 +73,27 @@ export const MenteePortal: React.FC = () => {
     const { user, logout, isLoggingOut } = useAuth();
     const [currentPage, setCurrentPage] = useState<MenteePage>('dashboard');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [hasNewMessages, setHasNewMessages] = useState(false);
+
+    useEffect(() => {
+        if (!user) return;
+        const channel = supabase.channel('new-messages-mentee')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+            if (payload.new.receiver_id === user.id) {
+              setHasNewMessages(true);
+            }
+          })
+          .subscribe();
+    
+        return () => {
+          supabase.removeChannel(channel);
+        };
+    }, [user]);
 
     const handleNavClick = (page: MenteePage) => {
+        if (page === 'messages') {
+            setHasNewMessages(false);
+        }
         setCurrentPage(page);
         if (window.innerWidth < 768) { // md breakpoint
             setIsSidebarOpen(false);
@@ -113,10 +135,11 @@ export const MenteePortal: React.FC = () => {
                 <NavItem icon={Icons.dashboard} label="Dashboard" isActive={currentPage === 'dashboard'} onClick={() => handleNavClick('dashboard')} />
                 <NavItem icon={Icons.assignment} label="My Assignments" isActive={currentPage === 'assignments'} onClick={() => handleNavClick('assignments')} />
                 <NavItem icon={Icons.meetings} label="My Meetings" isActive={currentPage === 'meetings'} onClick={() => handleNavClick('meetings')} />
-                <NavItem icon={Icons.chat} label="Messages" isActive={currentPage === 'messages'} onClick={() => handleNavClick('messages')} />
+                <NavItem icon={Icons.chat} label="Messages" isActive={currentPage === 'messages'} onClick={() => handleNavClick('messages')} hasNotification={hasNewMessages} />
                 <NavItem icon={Icons.star} label="My Points" isActive={currentPage === 'points'} onClick={() => handleNavClick('points')} />
             </nav>
             <div className="p-4 border-t dark:border-gray-700 space-y-4">
+                <Feedback />
                 <div className="flex items-center">
                     {user && 'photo' in user && user.photo && (
                         <img src={user.photo} alt={user.name} className="w-10 h-10 rounded-full mr-3 object-cover"/>
@@ -146,7 +169,9 @@ export const MenteePortal: React.FC = () => {
 
             <main className="flex-1 flex flex-col md:h-screen">
                 <header className="md:hidden bg-white dark:bg-gray-800 shadow-sm p-4 flex justify-between items-center sticky top-0 z-10">
-                    <div className="w-8 h-8"></div>
+                     <button onClick={() => setIsSidebarOpen(true)} className="p-1 text-gray-600 dark:text-gray-300">
+                        {Icons.menu}
+                    </button>
                     <h1 className="text-xl font-bold text-gray-900 dark:text-white capitalize">{currentPage.replace('My ', '')}</h1>
                     <ProfileMenu />
                 </header>

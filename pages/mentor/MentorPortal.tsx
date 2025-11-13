@@ -1,6 +1,8 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { Mentee } from '../../types';
+// Fix: Import the Mentor type
+import { Mentee, Mentor } from '../../types';
 import { APP_NAME, Icons } from '../../constants';
 import { Button } from '../../components/Button';
 import { MentorDashboard } from './MentorDashboard';
@@ -11,16 +13,19 @@ import { MentorMessaging } from './MentorMessaging';
 import { MentorAccount } from './MentorAccount';
 import { Spinner } from '../../components/Spinner';
 import { BottomNavBar, NavItemType } from '../../components/BottomNavBar';
+import { Feedback } from '../../components/Feedback';
+import { supabase } from '../../services/supabaseClient';
 
 type MentorPage = 'dashboard' | 'mentees' | 'assignments' | 'meetings' | 'messages' | 'account';
 
-const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void; }> = ({ icon, label, isActive, onClick }) => (
+const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void; hasNotification?: boolean; }> = ({ icon, label, isActive, onClick, hasNotification }) => (
     <button
         onClick={onClick}
-        className={`flex items-center space-x-3 w-full p-3 rounded-lg text-left transition-colors duration-200 ${isActive ? 'bg-primary text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+        className={`relative flex items-center space-x-3 w-full p-3 rounded-lg text-left transition-colors duration-200 ${isActive ? 'bg-primary text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
     >
         {icon}
         <span>{label}</span>
+        {hasNotification && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>}
     </button>
 );
 
@@ -44,7 +49,7 @@ const ProfileMenu: React.FC = () => {
     return (
         <div className="relative" ref={menuRef}>
             <button onClick={() => setIsOpen(!isOpen)} className="focus:outline-none rounded-full p-1 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                {Icons.profile}
+                <img src={(user as Mentor).photo || `https://ui-avatars.com/api/?name=${user.name.replace(' ', '+')}&background=4f46e5&color=fff`} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
             </button>
             {isOpen && (
                 <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-20">
@@ -71,8 +76,27 @@ export const MentorPortal: React.FC = () => {
     const [currentPage, setCurrentPage] = useState<MentorPage>('dashboard');
     const [messagingTarget, setMessagingTarget] = useState<Mentee | undefined>(undefined);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [hasNewMessages, setHasNewMessages] = useState(false);
+
+    useEffect(() => {
+        if (!user) return;
+        const channel = supabase.channel('new-messages-mentor')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+            if (payload.new.receiver_id === user.id) {
+              setHasNewMessages(true);
+            }
+          })
+          .subscribe();
+    
+        return () => {
+          supabase.removeChannel(channel);
+        };
+    }, [user]);
 
     const handleNavClick = (page: MentorPage) => {
+        if (page === 'messages') {
+            setHasNewMessages(false);
+        }
         setCurrentPage(page);
         if (window.innerWidth < 768) {
             setIsSidebarOpen(false);
@@ -128,10 +152,11 @@ export const MentorPortal: React.FC = () => {
                 <NavItem icon={Icons.users} label="My Mentees" isActive={currentPage === 'mentees'} onClick={() => handleNavClick('mentees')} />
                 <NavItem icon={Icons.assignment} label="Assignments" isActive={currentPage === 'assignments'} onClick={() => handleNavClick('assignments')} />
                 <NavItem icon={Icons.meetings} label="Meetings" isActive={currentPage === 'meetings'} onClick={() => handleNavClick('meetings')} />
-                <NavItem icon={Icons.chat} label="Messages" isActive={currentPage === 'messages'} onClick={() => handleNavClick('messages')} />
+                <NavItem icon={Icons.chat} label="Messages" isActive={currentPage === 'messages'} onClick={() => handleNavClick('messages')} hasNotification={hasNewMessages} />
             </nav>
             <div className="p-4 border-t dark:border-gray-700 space-y-4">
                 <NavItem icon={Icons.settings} label="My Account" isActive={currentPage === 'account'} onClick={() => handleNavClick('account')} />
+                <Feedback />
                 <div>
                     <p className="font-semibold text-gray-800 dark:text-gray-200">{user?.name}</p>
                     <p className="text-sm text-gray-500">{user?.username}</p>
@@ -156,7 +181,9 @@ export const MentorPortal: React.FC = () => {
 
             <main className="flex-1 flex flex-col md:h-screen">
                 <header className="md:hidden bg-white dark:bg-gray-800 shadow-sm p-4 flex justify-between items-center sticky top-0 z-10">
-                    <div className="w-8 h-8"></div>
+                     <button onClick={() => setIsSidebarOpen(true)} className="p-1 text-gray-600 dark:text-gray-300">
+                        {Icons.menu}
+                    </button>
                     <h1 className="text-xl font-bold text-gray-900 dark:text-white capitalize">{currentPage.replace('-', ' ')}</h1>
                     <ProfileMenu />
                 </header>

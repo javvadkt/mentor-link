@@ -1,9 +1,11 @@
 
+
+
 import { supabase } from './supabaseClient';
 import { 
     UserRole, AppUser, Mentee, Mentor, Admin, InvitationCode, Assignment, 
     Meeting, AssignmentStatus, Submission, Message, ScheduledMeeting, 
-    Warning, ProgressRecord, PointsLog, MeetingType 
+    Warning, ProgressRecord, PointsLog, MeetingType, Feedback 
 } from '../types';
 
 // Helper to handle Supabase errors
@@ -72,6 +74,7 @@ const shapeUserData = (profile: any): AppUser => {
             ...baseUser,
             role: UserRole.MENTOR,
             mentees: [], // This would require another query if needed immediately.
+            photo: profile.photo_url,
         } as Mentor;
     }
 
@@ -300,12 +303,12 @@ export class SupabaseService {
     }
 
     // --- Data Manipulation ---
-    private static async uploadPhoto(file: File, menteeId: string): Promise<string> {
-        const filePath = `public/${menteeId}-${Date.now()}`;
-        const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file);
+    private static async uploadPhoto(file: File, userId: string, bucket: 'avatars' | 'mentor_avatars'): Promise<string> {
+        const filePath = `public/${userId}-${Date.now()}`;
+        const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, file);
         if (uploadError) handleSupabaseError(uploadError, 'uploadPhoto');
 
-        const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+        const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
         return data.publicUrl;
     }
 
@@ -361,7 +364,7 @@ export class SupabaseService {
         // Step 4: Handle photo upload if exists
         let photoUrl = menteeData.photo || 'https://picsum.photos/200';
         if (menteeData.photoFile) {
-            photoUrl = await this.uploadPhoto(menteeData.photoFile, newMenteeId);
+            photoUrl = await this.uploadPhoto(menteeData.photoFile, newMenteeId, 'avatars');
         }
 
         // Step 5: Create the mentee_data entry
@@ -395,7 +398,7 @@ export class SupabaseService {
         
         let photoUrl = updates.photo;
         if (updates.photoFile) {
-            photoUrl = await this.uploadPhoto(updates.photoFile, menteeId);
+            photoUrl = await this.uploadPhoto(updates.photoFile, menteeId, 'avatars');
         }
 
         const menteeDataUpdates = {
@@ -409,6 +412,7 @@ export class SupabaseService {
         };
 
         const { error: menteeError } = await supabase.from('mentees_data').update(menteeDataUpdates).eq('profile_id', menteeId);
+        // FIX: Used the correct `menteeError` variable instead of the out-of-scope `error` variable.
         if (menteeError) handleSupabaseError(menteeError, 'updateMentee (mentee_data)');
 
         const updatedMentee = await this.getUserById(menteeId) as Mentee;
@@ -416,6 +420,7 @@ export class SupabaseService {
     }
 
     static async removeMentee(menteeId: string): Promise<{ success: boolean }> {
+        // This relies on a Postgres function with cascade deletes enabled.
         const { error } = await supabase.rpc('delete_user', { user_id_to_delete: menteeId });
         if (error) handleSupabaseError(error, 'removeMentee');
         return { success: true };
@@ -425,6 +430,61 @@ export class SupabaseService {
         const { error } = await supabase.rpc('delete_user', { user_id_to_delete: mentorId });
         if (error) handleSupabaseError(error, 'removeMentor');
         return { success: true };
+    }
+
+    static async bulkAddMentees(menteesData: any[]): Promise<{ successes: number; failures: { data: any; error: string }[] }> {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            throw new Error("Authentication error: Admin user must be logged in.");
+        }
+
+        const allMentors = await this.getAllMentors();
+        const mentorUsernameToIdMap = new Map(allMentors.map(m => [m.username, m.id]));
+
+        let successes = 0;
+        const failures: { data: any; error: string }[] = [];
+
+        for (const mentee of menteesData) {
+            try {
+                // Basic validation
+                if (!mentee.name || !mentee.username || !mentee.password || !mentee.adno || !mentee.class || !mentee.mentor_username) {
+                    throw new Error("One or more required fields are missing in a row.");
+                }
+
+                const mentorId = mentorUsernameToIdMap.get(mentee.mentor_username);
+                if (!mentorId) {
+                    throw new Error(`Mentor with username '${mentee.mentor_username}' not found.`);
+                }
+                if (mentee.password.length < 6) {
+                    throw new Error(`Password for user '${mentee.username}' is too short (minimum 6 characters).`);
+                }
+
+                // The addMentee function handles session switching, so it must be awaited sequentially.
+                await this.addMentee(mentorId, {
+                    name: mentee.name,
+                    username: mentee.username,
+                    password: mentee.password,
+                    adno: mentee.adno,
+                    class: mentee.class,
+                    photo: 'https://picsum.photos/200',
+                    isCoordinator: false,
+                    personalDetails: { dob: '', bloodGroup: '' },
+                    academicDetails: { gpa: 0, major: '' },
+                });
+                successes++;
+            } catch (error: any) {
+                failures.push({ data: mentee, error: error.message });
+            }
+        }
+        
+        // Restore the original admin session as a final safety measure.
+        const { error: sessionError } = await supabase.auth.setSession(session);
+        if (sessionError) {
+             console.error("CRITICAL: Failed to restore admin session after bulk add.", sessionError);
+             // Don't throw here as the operation is done, but log it.
+        }
+        
+        return { successes, failures };
     }
 
     // --- Assignments & Submissions ---
@@ -448,6 +508,17 @@ export class SupabaseService {
         if (linkError) handleSupabaseError(linkError, 'createAssignment links');
         
         return { ...data, dueDate: data.due_date, mentorId: data.mentor_id, menteeIds };
+    }
+
+    static async deleteAssignment(assignmentId: string): Promise<{ success: boolean }> {
+        // Assumes ON DELETE CASCADE is set for foreign keys in assignment_mentees and submissions.
+        const { error } = await supabase
+            .from('assignments')
+            .delete()
+            .eq('id', assignmentId);
+
+        if (error) handleSupabaseError(error, 'deleteAssignment');
+        return { success: true };
     }
     
     static async getMenteeById(menteeId: string): Promise<Mentee | undefined> {
@@ -574,6 +645,24 @@ export class SupabaseService {
         if (!meetings) return [];
         
         return meetings.map(m => ({
+            id: m.id,
+            mentorId: m.mentor_id,
+            menteeIds: m.mentee_ids || [],
+            type: m.type,
+            date: m.date,
+            notes: m.notes,
+        }));
+    }
+
+    static async getMeetingsForMentee(menteeId: string): Promise<Meeting[]> {
+        const { data, error } = await supabase
+            .from('meetings')
+            .select('*')
+            .contains('mentee_ids', [menteeId])
+            .order('date', { ascending: false });
+        if (error) handleSupabaseError(error, 'getMeetingsForMentee');
+        if (!data) return [];
+        return data.map(m => ({
             id: m.id,
             mentorId: m.mentor_id,
             menteeIds: m.mentee_ids || [],
@@ -870,11 +959,21 @@ export class SupabaseService {
         return { success: true };
     }
 
-    static async updateMentorProfile(mentorId: string, updates: { name?: string; username?: string }): Promise<Mentor> { 
-        const { data, error } = await supabase.from('profiles').update(updates).eq('id', mentorId).select().single();
+    static async updateMentorProfile(mentorId: string, updates: { name?: string; username?: string, photoFile?: File }): Promise<Mentor> { 
+        const profileUpdates: { name?: string; username?: string; photo_url?: string } = {};
+        if (updates.name) profileUpdates.name = updates.name;
+        if (updates.username) profileUpdates.username = updates.username;
+
+        if (updates.photoFile) {
+            const photoUrl = await this.uploadPhoto(updates.photoFile, mentorId, 'mentor_avatars');
+            profileUpdates.photo_url = photoUrl;
+        }
+
+        const { data, error } = await supabase.from('profiles').update(profileUpdates).eq('id', mentorId).select().single();
         if (error) handleSupabaseError(error, 'updateMentorProfile');
         return data as Mentor;
     }
+
     static async updateMentorPassword(mentorId: string, currentPassword?: string, newPassword?: string): Promise<{ success: boolean }> { 
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         if(error) handleSupabaseError(error, 'updateMentorPassword');
@@ -891,11 +990,59 @@ export class SupabaseService {
         return { success: true };
     }
 
+    static async updateUserPasswordByAdmin(userId: string, newPassword: string): Promise<{ success: boolean }> {
+        // This requires a privileged RPC function 'admin_reset_user_password' to be created in the Supabase backend.
+        const { error } = await supabase.rpc('admin_reset_user_password', {
+            target_user_id: userId,
+            new_password: newPassword
+        });
+
+        if (error) {
+            // The original logic here was too broad and could mask the true nature of a password-related
+            // error (e.g., strength vs. length). Propagating the raw error is more accurate.
+            handleSupabaseError(error, 'updateUserPasswordByAdmin');
+        }
+
+        return { success: true };
+    }
+
     static async getAllMeetingsForStats(): Promise<{ mentee_ids: string[] }[]> {
         const { data, error } = await supabase
             .from('meetings')
             .select('mentee_ids');
         if (error) handleSupabaseError(error, 'getAllMeetingsForStats');
         return data || [];
+    }
+
+    // --- Feedback ---
+    static async submitFeedback(userId: string, userRole: UserRole, userName: string, content: string): Promise<{ success: boolean }> {
+        const { error } = await supabase.from('feedback').insert({
+            user_id: userId,
+            user_role: userRole,
+            user_name: userName,
+            content: content
+        });
+        if (error) handleSupabaseError(error, 'submitFeedback');
+        return { success: true };
+    }
+
+    static async getFeedback(): Promise<Feedback[]> {
+        const { data, error } = await supabase
+            .from('feedback')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error) handleSupabaseError(error, 'getFeedback');
+        return data || [];
+    }
+
+    static async setFeedbackActioned(feedbackId: string, isActioned: boolean): Promise<Feedback> {
+        const { data, error } = await supabase
+            .from('feedback')
+            .update({ is_actioned: isActioned })
+            .eq('id', feedbackId)
+            .select()
+            .single();
+        if (error) handleSupabaseError(error, 'setFeedbackActioned');
+        return data;
     }
 }

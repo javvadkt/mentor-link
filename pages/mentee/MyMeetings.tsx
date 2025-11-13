@@ -81,6 +81,15 @@ export const MyMeetings: React.FC = () => {
         fetchHistoryData();
     }, [mentee]);
 
+    const timeTo12HourFormat = (time: string) => {
+        if (!time) return '';
+        const [hours, minutes] = time.split(':');
+        const date = new Date();
+        date.setHours(parseInt(hours));
+        date.setMinutes(parseInt(minutes));
+        return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    };
+
     return (
         <div className="space-y-6">
             <Card title="Upcoming Meetings">
@@ -94,7 +103,7 @@ export const MyMeetings: React.FC = () => {
                                             <p className="font-bold text-lg text-gray-900 dark:text-white">
                                                 {new Date(meeting.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                                             </p>
-                                            <p className="text-sm text-gray-500 dark:text-gray-400">at {meeting.time} with {mentor?.name || 'your mentor'}</p>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400">at {timeTo12HourFormat(meeting.time)} with {mentor?.name || 'your mentor'}</p>
                                         </div>
                                         <span className={`text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap ${meeting.type === MeetingType.PERSONAL ? 'bg-primary/10 text-primary dark:bg-primary/20' : 'bg-secondary/10 text-secondary dark:bg-secondary/20'}`}>
                                             {meeting.type}

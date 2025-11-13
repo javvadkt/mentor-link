@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { Card } from '../../components/Card';
 import { Spinner } from '../../components/Spinner';
@@ -9,6 +8,29 @@ import { Input } from '../../components/Input';
 import { SupabaseService } from '../../services/supabaseService';
 import { Assignment, Mentee, Submission, AssignmentStatus } from '../../types';
 import { Icons } from '../../constants';
+
+const AddPointsModal: React.FC<{ mentee: Mentee; onSave: (points: number, reason: string) => void; onClose: () => void; assignmentTitle: string }> = ({ mentee, onSave, onClose, assignmentTitle }) => {
+    const [points, setPoints] = useState(10);
+    const [reason, setReason] = useState(`Completed assignment: ${assignmentTitle}`);
+
+    const handleSave = () => {
+        onSave(points, reason);
+    };
+
+    return (
+        <Modal isOpen={true} onClose={onClose} title={`Award Points to ${mentee.name}`}>
+            <div className="space-y-4">
+                <Input id="points" label="Points" type="number" value={String(points)} onChange={e => setPoints(parseInt(e.target.value, 10) || 0)} />
+                <Input id="reason" label="Reason" value={reason} onChange={e => setReason(e.target.value)} />
+                <div className="flex justify-end gap-2">
+                    <Button variant="ghost" onClick={onClose}>Skip</Button>
+                    <Button onClick={handleSave}>Award Points</Button>
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
 
 const AssignmentForm: React.FC<{ mentees: Mentee[]; onSave: () => void; onClose: () => void; }> = ({ mentees, onSave, onClose }) => {
     const { user: mentor } = useAuth();
@@ -98,6 +120,12 @@ export const AssignmentManager: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [expandedAssignmentId, setExpandedAssignmentId] = useState<string | null>(null);
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [dateFilter, setDateFilter] = useState('');
+    const [pointsModalState, setPointsModalState] = useState<{ isOpen: boolean; mentee?: Mentee, assignmentTitle?: string, assignmentId?: string }>({ isOpen: false });
+    const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
+    const [assignmentToDelete, setAssignmentToDelete] = useState<Assignment | null>(null);
+
     
     const fetchData = async () => {
         if (!user) return;
@@ -139,14 +167,55 @@ export const AssignmentManager: React.FC = () => {
         fetchData();
     };
 
-    const markAsComplete = async (assignmentId: string, menteeId: string) => {
+    const markAsComplete = async (assignmentId: string, menteeId: string, assignmentTitle: string) => {
         await SupabaseService.updateSubmissionStatus(assignmentId, menteeId, AssignmentStatus.COMPLETED);
-        fetchData();
+        const mentee = mentees.find(m => m.id === menteeId);
+        if (mentee) {
+            setPointsModalState({ isOpen: true, mentee, assignmentTitle, assignmentId });
+        } else {
+            fetchData();
+        }
     };
     
+    const handleAwardPoints = async (points: number, reason: string) => {
+        if (pointsModalState.mentee) {
+            await SupabaseService.addPoints(pointsModalState.mentee.id, points, reason);
+        }
+        setPointsModalState({ isOpen: false });
+        fetchData();
+    };
+
     const toggleAssignment = (assignmentId: string) => {
         setExpandedAssignmentId(prevId => (prevId === assignmentId ? null : assignmentId));
     };
+    
+    const handleDeleteClick = (assignment: Assignment) => {
+        setAssignmentToDelete(assignment);
+        setIsConfirmDeleteOpen(true);
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!assignmentToDelete) return;
+        await SupabaseService.deleteAssignment(assignmentToDelete.id);
+        setIsConfirmDeleteOpen(false);
+        setAssignmentToDelete(null);
+        fetchData();
+    };
+
+    const filteredAssignments = useMemo(() => {
+        return assignments.filter(assignment => {
+            const dateMatch = !dateFilter || assignment.dueDate === dateFilter;
+            
+            if (statusFilter === 'all') return dateMatch;
+
+            const isCompleted = (submissions[assignment.id] || []).filter(s => s.status === AssignmentStatus.COMPLETED).length === assignment.menteeIds.length;
+            if (statusFilter === 'completed') return dateMatch && isCompleted;
+            if (statusFilter === 'pending') return dateMatch && !isCompleted;
+
+            return dateMatch;
+        });
+    }, [assignments, submissions, statusFilter, dateFilter]);
+
 
     return (
         <>
@@ -155,8 +224,16 @@ export const AssignmentManager: React.FC = () => {
                      <p className="text-red-500 text-center">{error}</p>
                 ) : (
                     <>
-                        <div className="flex justify-end mb-4">
-                            <Button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2">
+                        <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                            <div className="flex gap-4 w-full md:w-auto">
+                                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600">
+                                    <option value="all">All Statuses</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="completed">Completed</option>
+                                </select>
+                                <Input id="dateFilter" label="" type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
+                            </div>
+                            <Button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 w-full md:w-auto">
                                 {Icons.add}
                                 Create Assignment
                             </Button>
@@ -168,8 +245,8 @@ export const AssignmentManager: React.FC = () => {
                                     <AssignmentSkeleton />
                                     <AssignmentSkeleton />
                                 </>
-                            ) : assignments.length > 0 ? (
-                                assignments.map(assignment => {
+                            ) : filteredAssignments.length > 0 ? (
+                                filteredAssignments.map(assignment => {
                                     const isExpanded = expandedAssignmentId === assignment.id;
                                     const assignmentSubmissions = submissions[assignment.id] || [];
                                     const submittedCount = assignmentSubmissions.filter(s => s.status === AssignmentStatus.SUBMITTED || s.status === AssignmentStatus.COMPLETED).length;
@@ -180,13 +257,13 @@ export const AssignmentManager: React.FC = () => {
             
                                     return (
                                         <div key={assignment.id} className="border rounded-lg dark:border-gray-700 overflow-hidden transition-all duration-300">
-                                            <button
-                                                onClick={() => toggleAssignment(assignment.id)}
+                                            <div
                                                 className="w-full p-4 text-left flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                                                aria-expanded={isExpanded}
-                                                aria-controls={`assignment-content-${assignment.id}`}
                                             >
-                                                <div>
+                                                <div 
+                                                    onClick={() => toggleAssignment(assignment.id)}
+                                                    className="flex-grow cursor-pointer"
+                                                >
                                                     <h4 className="font-bold text-lg text-gray-900 dark:text-white">{assignment.title}</h4>
                                                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                                                         <span className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-full bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300">
@@ -207,27 +284,47 @@ export const AssignmentManager: React.FC = () => {
                                                             </svg>
                                                             Due: {new Date(assignment.dueDate).toLocaleDateString()}
                                                         </span>
-                                                        {isFullyCompleted ? (
-                                                            <span className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                                                </svg>
-                                                                Completed
-                                                            </span>
-                                                        ) : (
-                                                            <span className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                                                                     <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2-2H4a2 2 0 01-2-2v-4z" />
-                                                                </svg>
-                                                                {submittedCount}/{totalMentees} Submitted
-                                                            </span>
+                                                        {totalMentees > 0 && (
+                                                            isFullyCompleted ? (
+                                                                <span className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                    Completed
+                                                                </span>
+                                                            ) : (
+                                                                <span className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2-2H4a2 2 0 01-2-2v-4z" />
+                                                                    </svg>
+                                                                    {submittedCount}/{totalMentees} Submitted
+                                                                </span>
+                                                            )
                                                         )}
                                                     </div>
                                                 </div>
-                                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 transform transition-transform text-gray-500 dark:text-gray-400 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                </svg>
-                                            </button>
+                                                <div className="flex items-center gap-2">
+                                                    {submittedCount === 0 && (
+                                                        <Button 
+                                                            variant="danger" 
+                                                            size="sm" 
+                                                            onClick={() => handleDeleteClick(assignment)}
+                                                        >
+                                                            Delete
+                                                        </Button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => toggleAssignment(assignment.id)}
+                                                        className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"
+                                                        aria-expanded={isExpanded}
+                                                        aria-controls={`assignment-content-${assignment.id}`}
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 transform transition-transform text-gray-500 dark:text-gray-400 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
             
                                             {isExpanded && (
                                                 <div id={`assignment-content-${assignment.id}`} className="p-4 bg-white dark:bg-gray-800 border-t dark:border-gray-700">
@@ -262,7 +359,7 @@ export const AssignmentManager: React.FC = () => {
                                                                                     <Button variant="secondary" size="sm" onClick={() => recordSubmission(assignment.id, menteeId)}>Record Submission</Button>
                                                                                 )}
                                                                                 {status === AssignmentStatus.SUBMITTED && (
-                                                                                    <Button variant="secondary" size="sm" onClick={() => markAsComplete(assignment.id, menteeId)}>Mark Complete</Button>
+                                                                                    <Button variant="secondary" size="sm" onClick={() => markAsComplete(assignment.id, menteeId, assignment.title)}>Mark Complete</Button>
                                                                                 )}
                                                                             </td>
                                                                         </tr>
@@ -278,8 +375,7 @@ export const AssignmentManager: React.FC = () => {
                                 })
                             ) : (
                                 <div className="text-center py-10">
-                                    <p className="text-gray-500 dark:text-gray-400">No assignments created yet.</p>
-                                    <Button onClick={() => setIsModalOpen(true)} className="mt-4">Create Your First Assignment</Button>
+                                    <p className="text-gray-500 dark:text-gray-400">No assignments found for the selected filters.</p>
                                 </div>
                             )}
                         </div>
@@ -290,6 +386,29 @@ export const AssignmentManager: React.FC = () => {
             <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Create New Assignment">
                 <AssignmentForm mentees={mentees} onSave={() => { setIsModalOpen(false); fetchData(); }} onClose={() => setIsModalOpen(false)} />
             </Modal>
+             {pointsModalState.isOpen && pointsModalState.mentee && pointsModalState.assignmentTitle && (
+                <AddPointsModal
+                    mentee={pointsModalState.mentee}
+                    assignmentTitle={pointsModalState.assignmentTitle}
+                    onSave={handleAwardPoints}
+                    onClose={() => { setPointsModalState({ isOpen: false }); fetchData(); }}
+                />
+            )}
+            {assignmentToDelete && (
+                <Modal 
+                    isOpen={isConfirmDeleteOpen} 
+                    onClose={() => setIsConfirmDeleteOpen(false)} 
+                    title={`Delete Assignment: ${assignmentToDelete.title}`}
+                >
+                    <div className="space-y-6">
+                        <p>Are you sure you want to delete this assignment? This action cannot be undone.</p>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="ghost" onClick={() => setIsConfirmDeleteOpen(false)}>Cancel</Button>
+                            <Button variant="danger" onClick={handleConfirmDelete}>Delete</Button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
         </>
     );
 };

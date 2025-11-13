@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { APP_NAME, Icons } from '../../constants';
@@ -6,12 +7,14 @@ import { ManageMentors } from './ManageMentors';
 import { ManageMentees } from './ManageMentees';
 import { SystemSettings } from './SystemSettings';
 import { AdminAccount } from './AdminAccount';
+import { FeedbackReview } from './FeedbackReview';
 import { Button } from '../../components/Button';
 import { Spinner } from '../../components/Spinner';
 import { BottomNavBar } from '../../components/BottomNavBar';
 import { NavItemType } from '../../components/BottomNavBar';
+import { Feedback } from '../../components/Feedback';
 
-type AdminPage = 'dashboard' | 'mentors' | 'mentees' | 'settings' | 'account';
+type AdminPage = 'dashboard' | 'mentors' | 'mentees' | 'settings' | 'account' | 'feedback';
 
 const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void; }> = ({ icon, label, isActive, onClick }) => (
     <button
@@ -82,6 +85,7 @@ export const AdminPortal: React.FC = () => {
         { page: 'mentors', label: 'Mentors', icon: Icons.users },
         { page: 'mentees', label: 'Mentees', icon: Icons.profile },
         { page: 'settings', label: 'Settings', icon: Icons.settings },
+        { page: 'feedback', label: 'Feedback', icon: Icons.feedback },
         { page: 'account', label: 'Account', icon: Icons.settings },
     ];
 
@@ -95,6 +99,8 @@ export const AdminPortal: React.FC = () => {
                 return <ManageMentees />;
             case 'settings':
                 return <SystemSettings />;
+            case 'feedback':
+                return <FeedbackReview />;
             case 'account':
                 return <AdminAccount />;
             default:
@@ -113,9 +119,11 @@ export const AdminPortal: React.FC = () => {
                 <NavItem icon={Icons.users} label="Manage Mentors" isActive={currentPage === 'mentors'} onClick={() => handleNavClick('mentors')} />
                 <NavItem icon={Icons.profile} label="All Mentees" isActive={currentPage === 'mentees'} onClick={() => handleNavClick('mentees')} />
                 <NavItem icon={Icons.settings} label="System Settings" isActive={currentPage === 'settings'} onClick={() => handleNavClick('settings')} />
+                <NavItem icon={Icons.feedback} label="Feedback" isActive={currentPage === 'feedback'} onClick={() => handleNavClick('feedback')} />
             </nav>
             <div className="p-4 border-t dark:border-gray-700 space-y-4">
                  <NavItem icon={Icons.settings} label="My Account" isActive={currentPage === 'account'} onClick={() => handleNavClick('account')} />
+                <Feedback />
                 <div>
                     <p className="font-semibold text-gray-800 dark:text-gray-200">{user?.name}</p>
                     <p className="text-sm text-gray-500">{user?.username}</p>
@@ -140,7 +148,9 @@ export const AdminPortal: React.FC = () => {
             
             <main className="flex-1 flex flex-col md:h-screen">
                 <header className="md:hidden bg-white dark:bg-gray-800 shadow-sm p-4 flex justify-between items-center sticky top-0 z-10">
-                    <div className="w-8 h-8"></div>
+                     <button onClick={() => setIsSidebarOpen(true)} className="p-1 text-gray-600 dark:text-gray-300">
+                        {Icons.menu}
+                    </button>
                     <h1 className="text-xl font-bold text-gray-900 dark:text-white capitalize">{currentPage.replace('-', ' ')}</h1>
                     <ProfileMenu />
                 </header>

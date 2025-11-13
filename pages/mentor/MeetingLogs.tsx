@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { Card } from '../../components/Card';
 import { Spinner } from '../../components/Spinner';
@@ -9,7 +10,30 @@ import { SupabaseService } from '../../services/supabaseService';
 import { Meeting, Mentee, MeetingType, ScheduledMeeting } from '../../types';
 import { Icons } from '../../constants';
 
-const MeetingForm: React.FC<{ mentees: Mentee[]; onSave: () => void; onClose: () => void; initialData?: Partial<Meeting> }> = ({ mentees, onSave, onClose, initialData }) => {
+const AddPointsModal: React.FC<{ mentees: Mentee[]; onSave: (menteeIds: string[], points: number, reason: string) => void; onClose: () => void; meetingDate: string }> = ({ mentees, onSave, onClose, meetingDate }) => {
+    const [points, setPoints] = useState(5);
+    const [reason, setReason] = useState(`Attended meeting on ${new Date(meetingDate).toLocaleDateString()}`);
+
+    const handleSave = () => {
+        onSave(mentees.map(m => m.id), points, reason);
+    };
+
+    return (
+        <Modal isOpen={true} onClose={onClose} title={`Award Points for Meeting`}>
+            <div className="space-y-4">
+                <p>Awarding points to: {mentees.map(m => m.name).join(', ')}</p>
+                <Input id="points" label="Points" type="number" value={String(points)} onChange={e => setPoints(parseInt(e.target.value, 10) || 0)} />
+                <Input id="reason" label="Reason" value={reason} onChange={e => setReason(e.target.value)} />
+                <div className="flex justify-end gap-2">
+                    <Button variant="ghost" onClick={onClose}>Skip</Button>
+                    <Button onClick={handleSave}>Award Points</Button>
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
+const MeetingForm: React.FC<{ mentees: Mentee[]; onSave: (menteeIds: string[], date: string) => void; onClose: () => void; initialData?: Partial<Meeting> }> = ({ mentees, onSave, onClose, initialData }) => {
     const { user: mentor } = useAuth();
     const [type, setType] = useState<MeetingType>(initialData?.type || MeetingType.PERSONAL);
     const [date, setDate] = useState(initialData?.date || new Date().toISOString().split('T')[0]);
@@ -23,7 +47,7 @@ const MeetingForm: React.FC<{ mentees: Mentee[]; onSave: () => void; onClose: ()
         setLoading(true);
         await SupabaseService.logMeeting({ mentorId: mentor.id, type, date, notes, menteeIds: selectedMentees });
         setLoading(false);
-        onSave();
+        onSave(selectedMentees, date);
     };
     
     const handleMenteeSelection = (menteeId: string, checked: boolean) => {
@@ -180,8 +204,11 @@ export const MeetingLogs: React.FC = () => {
     const [loadingHistory, setLoadingHistory] = useState(true);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
     const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'history' | 'schedule'>('schedule');
+    const [activeTab, setActiveTab] = useState<'schedule' | 'history'>('schedule');
     const [meetingToLog, setMeetingToLog] = useState<Partial<Meeting> | undefined>(undefined);
+    const [typeFilter, setTypeFilter] = useState('all');
+    const [pointsModalState, setPointsModalState] = useState<{ isOpen: boolean, mentees: Mentee[], meetingDate: string }>({ isOpen: false, mentees: [], meetingDate: '' });
+
 
     const refetchAll = async () => {
         if (!user) return;
@@ -200,42 +227,12 @@ export const MeetingLogs: React.FC = () => {
     };
 
     useEffect(() => {
-        if (!user) {
-            setLoadingScheduled(false);
-            setLoadingHistory(false);
-            return;
+        if (user) {
+            refetchAll();
+        } else {
+             setLoadingScheduled(false);
+             setLoadingHistory(false);
         }
-
-        const fetchScheduledData = async () => {
-            setLoadingScheduled(true);
-            try {
-                const [menteesData, scheduledMeetingsData] = await Promise.all([
-                    SupabaseService.getMenteesByMentorId(user.id),
-                    SupabaseService.getScheduledMeetings(user.id, user.role),
-                ]);
-                setMentees(menteesData);
-                setScheduledMeetings(scheduledMeetingsData.filter(m => m.status === 'Planned').sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-            } catch (error) {
-                console.error("Failed to fetch scheduled meetings data", error);
-            } finally {
-                setLoadingScheduled(false);
-            }
-        };
-
-        const fetchHistoryData = async () => {
-            setLoadingHistory(true);
-            try {
-                const meetingsData = await SupabaseService.getMeetings(user.id, user.role);
-                setMeetings(meetingsData.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-            } catch(error) {
-                console.error("Failed to fetch meeting history", error);
-            } finally {
-                setLoadingHistory(false);
-            }
-        };
-
-        fetchScheduledData();
-        fetchHistoryData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user]);
 
@@ -254,6 +251,19 @@ export const MeetingLogs: React.FC = () => {
         setIsLogModalOpen(true);
     };
 
+    const handleLogSave = (menteeIds: string[], date: string) => {
+        setIsLogModalOpen(false);
+        const awardedMentees = mentees.filter(m => menteeIds.includes(m.id));
+        setPointsModalState({ isOpen: true, mentees: awardedMentees, meetingDate: date });
+    };
+    
+    const handleAwardPoints = async (menteeIds: string[], points: number, reason: string) => {
+        await Promise.all(menteeIds.map(id => SupabaseService.addPoints(id, points, reason)));
+        setPointsModalState({ isOpen: false, mentees: [], meetingDate: '' });
+        refetchAll();
+    };
+
+
     const handleCancelMeeting = async (meetingId: string) => {
         if (window.confirm("Are you sure you want to cancel this meeting?")) {
             await SupabaseService.updateScheduledMeetingStatus(meetingId, 'Cancelled');
@@ -269,13 +279,32 @@ export const MeetingLogs: React.FC = () => {
             {label}
         </button>
     );
+    
+    const timeTo12HourFormat = (time: string) => {
+        if (!time) return '';
+        const [hours, minutes] = time.split(':');
+        const date = new Date();
+        date.setHours(parseInt(hours));
+        date.setMinutes(parseInt(minutes));
+        return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    };
+
+    const filteredMeetings = useMemo(() => {
+        if (typeFilter === 'all') return meetings;
+        return meetings.filter(m => m.type === typeFilter);
+    }, [meetings, typeFilter]);
 
     const renderContent = () => {
         if (activeTab === 'history') {
             return (
                 <div>
-                    <div className="flex justify-end mb-4">
-                        <Button onClick={() => handleOpenLogModal()} className="flex items-center gap-2">
+                    <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 w-full md:w-auto">
+                            <option value="all">All Meeting Types</option>
+                            <option value={MeetingType.PERSONAL}>Personal</option>
+                            <option value={MeetingType.GENERAL}>General</option>
+                        </select>
+                        <Button onClick={() => handleOpenLogModal()} className="flex items-center gap-2 w-full md:w-auto">
                             {Icons.add}
                             Log a Meeting
                         </Button>
@@ -287,7 +316,7 @@ export const MeetingLogs: React.FC = () => {
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            {meetings.length > 0 ? meetings.map(meeting => (
+                            {filteredMeetings.length > 0 ? filteredMeetings.map(meeting => (
                                 <div key={meeting.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
                                     <div className="flex">
                                         <div className={`w-1.5 ${meeting.type === MeetingType.PERSONAL ? 'bg-primary' : 'bg-secondary'}`}></div>
@@ -317,7 +346,7 @@ export const MeetingLogs: React.FC = () => {
                                     </div>
                                 </div>
                             )) : (
-                                <p className="text-center text-gray-500 py-4">No meetings have been logged yet.</p>
+                                <p className="text-center text-gray-500 py-4">No meetings found for the selected filter.</p>
                             )}
                         </div>
                     )}
@@ -351,7 +380,7 @@ export const MeetingLogs: React.FC = () => {
                                                 <div>
                                                     <div className="flex items-center gap-3 text-lg font-bold text-gray-900 dark:text-white">
                                                         <span className="text-gray-500 dark:text-gray-400">{Icons.meetings}</span>
-                                                        <span>{new Date(meeting.date).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })} at {meeting.time}</span>
+                                                        <span>{new Date(meeting.date).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })} at {timeTo12HourFormat(meeting.time)}</span>
                                                     </div>
                                                     <div className="flex items-center gap-3 mt-2 text-sm text-gray-600 dark:text-gray-300">
                                                         <span className="text-gray-500 dark:text-gray-400">{Icons.users}</span>
@@ -397,19 +426,27 @@ export const MeetingLogs: React.FC = () => {
         <>
             <Card title="Meetings">
                  <div className="flex border-b border-gray-200 dark:border-gray-700 -mt-4 -mx-6 px-6 mb-4">
-                    <TabButton label="Meeting History" isActive={activeTab === 'history'} onClick={() => setActiveTab('history')} />
                     <TabButton label="Scheduled Meetings" isActive={activeTab === 'schedule'} onClick={() => setActiveTab('schedule')} />
+                    <TabButton label="Meeting History" isActive={activeTab === 'history'} onClick={() => setActiveTab('history')} />
                 </div>
                 {renderContent()}
             </Card>
 
             <Modal isOpen={isLogModalOpen} onClose={() => setIsLogModalOpen(false)} title="Log a New Meeting">
-                <MeetingForm mentees={mentees} onSave={() => { setIsLogModalOpen(false); refetchAll(); }} onClose={() => setIsLogModalOpen(false)} initialData={meetingToLog} />
+                <MeetingForm mentees={mentees} onSave={handleLogSave} onClose={() => setIsLogModalOpen(false)} initialData={meetingToLog} />
             </Modal>
             
             <Modal isOpen={isScheduleModalOpen} onClose={() => setIsScheduleModalOpen(false)} title="Schedule a New Meeting">
                 <ScheduleMeetingForm mentees={mentees} onSave={() => { setIsScheduleModalOpen(false); refetchAll(); }} onClose={() => setIsScheduleModalOpen(false)} />
             </Modal>
+            {pointsModalState.isOpen && (
+                <AddPointsModal
+                    mentees={pointsModalState.mentees}
+                    meetingDate={pointsModalState.meetingDate}
+                    onSave={handleAwardPoints}
+                    onClose={() => { setPointsModalState({ isOpen: false, mentees: [], meetingDate: '' }); refetchAll(); }}
+                />
+            )}
         </>
     );
 };

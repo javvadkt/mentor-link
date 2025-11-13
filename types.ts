@@ -48,6 +48,7 @@ export interface Mentee extends User {
 export interface Mentor extends User {
   role: UserRole.MENTOR;
   mentees: string[]; // array of mentee ids
+  photo?: string;
 }
 
 export interface Admin extends User {
@@ -142,4 +143,14 @@ export interface PointsLog {
   points: number;
   reason: string;
   timestamp: string;
+}
+
+export interface Feedback {
+  id: string;
+  user_id: string;
+  user_role: UserRole;
+  user_name: string;
+  content: string;
+  created_at: string;
+  is_actioned: boolean;
 }

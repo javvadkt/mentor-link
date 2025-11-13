@@ -69,6 +69,27 @@ export const MenteeDashboard: React.FC = () => {
             return status !== AssignmentStatus.COMPLETED;
         });
     };
+    
+    const getStatusText = (assignmentId: string): { text: string; color: string; } => {
+        const status = submissions.get(assignmentId)?.status || AssignmentStatus.PENDING;
+        switch (status) {
+            case AssignmentStatus.PENDING:
+                return { text: 'Not Submitted', color: 'text-gray-500' };
+            case AssignmentStatus.SUBMITTED:
+                return { text: 'Waiting for Approval', color: 'text-blue-500' };
+            default:
+                return { text: status, color: 'text-gray-500' };
+        }
+    };
+
+    const timeTo12HourFormat = (time: string) => {
+        if (!time) return '';
+        const [hours, minutes] = time.split(':');
+        const date = new Date();
+        date.setHours(parseInt(hours));
+        date.setMinutes(parseInt(minutes));
+        return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    };
 
     if (loading) return (
         <div className="space-y-6">
@@ -119,12 +140,20 @@ export const MenteeDashboard: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card title="Pending Assignments">
                     <ul className="space-y-3">
-                        {getPendingAssignments().map(a => (
-                            <li key={a.id} className="p-3 bg-gray-50 dark:bg-gray-700 rounded-md">
-                                <p className="font-semibold">{a.title}</p>
-                                <p className="text-sm text-red-500">Due: {new Date(a.dueDate).toLocaleDateString()}</p>
-                            </li>
-                        ))}
+                        {getPendingAssignments().map(a => {
+                            const statusInfo = getStatusText(a.id);
+                            return (
+                                <li key={a.id} className="p-3 bg-gray-50 dark:bg-gray-700 rounded-md">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <p className="font-semibold">{a.title}</p>
+                                            <p className="text-sm text-red-500">Due: {new Date(a.dueDate).toLocaleDateString()}</p>
+                                        </div>
+                                        <span className={`text-xs font-semibold ${statusInfo.color}`}>{statusInfo.text}</span>
+                                    </div>
+                                </li>
+                            );
+                        })}
                         {getPendingAssignments().length === 0 && <p className="text-gray-500">No pending assignments.</p>}
                     </ul>
                 </Card>
@@ -133,7 +162,7 @@ export const MenteeDashboard: React.FC = () => {
                         {scheduledMeetings.slice(0, 3).map(m => (
                             <li key={m.id} className="p-3 bg-gray-50 dark:bg-gray-700 rounded-md">
                                 <p className="font-semibold">{m.type} Meeting</p>
-                                <p className="text-sm text-gray-500">On: {new Date(m.date).toLocaleDateString()} at {m.time}</p>
+                                <p className="text-sm text-gray-500">On: {new Date(m.date).toLocaleDateString()} at {timeTo12HourFormat(m.time)}</p>
                             </li>
                         ))}
                          {scheduledMeetings.length === 0 && <p className="text-gray-500">No meetings scheduled.</p>}

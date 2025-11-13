@@ -1,11 +1,13 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card } from '../../components/Card';
 import { Spinner } from '../../components/Spinner';
 import { Button } from '../../components/Button';
 import { SupabaseService } from '../../services/supabaseService';
 import { Mentor } from '../../types';
 import { Modal } from '../../components/Modal';
+import { Input } from '../../components/Input';
+import { Icons } from '../../constants';
 
 const ConfirmationModal: React.FC<{
   isOpen: boolean;
@@ -41,6 +43,7 @@ export const ManageMentors: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [selectedMentor, setSelectedMentor] = useState<Mentor | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
 
     const fetchMentors = async () => {
         setLoading(true);
@@ -66,9 +69,34 @@ export const ManageMentors: React.FC = () => {
         setSelectedMentor(null);
     };
 
+    const filteredMentors = useMemo(() => {
+        if (!searchTerm) return mentors;
+        return mentors.filter(mentor =>
+            mentor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            mentor.username.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [searchTerm, mentors]);
+
+
     return (
         <>
             <Card title="Manage Mentors">
+                <div className="mb-4">
+                    <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            {Icons.search}
+                        </div>
+                        <Input
+                            id="search-mentors"
+                            label=""
+                            type="text"
+                            placeholder="Search by name or username..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-10"
+                        />
+                    </div>
+                </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
                         <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
@@ -86,19 +114,23 @@ export const ManageMentors: React.FC = () => {
                                     <TableRowSkeleton />
                                     <TableRowSkeleton />
                                 </>
-                            ) : mentors.map(mentor => (
+                            ) : filteredMentors.map(mentor => (
                                 <tr key={mentor.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
                                     <td className="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">{mentor.name}</td>
                                     <td className="px-6 py-4">{mentor.username}</td>
                                     <td className="px-6 py-4">{mentor.mentees.length}</td>
                                     <td className="px-6 py-4 space-x-2">
-                                        <Button variant="ghost" size="sm">Edit</Button>
                                         <Button variant="danger" size="sm" onClick={() => handleRemoveClick(mentor)}>Remove</Button>
                                     </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
+                     {!loading && filteredMentors.length === 0 && (
+                        <div className="text-center py-10 text-gray-500">
+                            No mentors found.
+                        </div>
+                    )}
                 </div>
             </Card>
             {selectedMentor && (

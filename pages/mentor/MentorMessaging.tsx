@@ -89,6 +89,14 @@ export const MentorMessaging: React.FC<MentorMessagingProps> = ({ initialMentee 
         setNewMessage('');
     };
 
+    const formatTime = (timestamp: string) => {
+        return new Date(timestamp).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+    };
+
     if (loading) return <ChatSkeleton />;
 
     return (
@@ -118,7 +126,7 @@ export const MentorMessaging: React.FC<MentorMessagingProps> = ({ initialMentee 
                                 <div key={msg.id} className={`flex ${msg.senderId === mentor?.id ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-xs lg:max-w-md p-3 rounded-lg ${msg.senderId === mentor?.id ? 'bg-primary text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>
                                         <p className="break-words">{msg.content}</p>
-                                        <p className="text-xs opacity-75 mt-1 text-right">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                        <p className="text-xs opacity-75 mt-1 text-right">{formatTime(msg.timestamp)}</p>
                                     </div>
                                 </div>
                             ))}

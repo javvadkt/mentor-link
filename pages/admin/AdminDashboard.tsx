@@ -25,6 +25,7 @@ export const AdminDashboard: React.FC = () => {
     const [warnings, setWarnings] = useState<Warning[]>([]);
     const [loading, setLoading] = useState(true);
     const [checking, setChecking] = useState(false);
+    const [lastCheckDate, setLastCheckDate] = useState<Date | null>(null);
 
     const fetchData = async () => {
         setLoading(true);
@@ -46,6 +47,7 @@ export const AdminDashboard: React.FC = () => {
         setWarnings([]);
         const newWarnings = await SupabaseService.runMonthlyCheck();
         setWarnings(newWarnings);
+        setLastCheckDate(new Date());
         setChecking(false);
     }
 
@@ -84,32 +86,35 @@ export const AdminDashboard: React.FC = () => {
             <Card title="System Health & Automated Warnings">
                 <div className="space-y-4">
                     <p className="text-gray-600 dark:text-gray-300">
-                        Run a system-wide check for the past month to find mentees with insufficient meetings.
+                        Run a system-wide check for the past month to find mentees with insufficient meetings. This helps identify potential issues early.
                     </p>
                     <Button onClick={handleRunCheck} disabled={checking}>
-                        {checking ? 'Checking...' : 'Run Monthly Check'}
+                        {checking ? <><Spinner size="sm" color="white" className="mr-2"/> Checking...</> : 'Run Monthly Check'}
                     </Button>
 
                     {checking && <Spinner />}
 
-                    {warnings.length > 0 && (
-                         <div className="mt-4">
-                            <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">{Icons.warning} Urgent Warnings ({warnings.length})</h3>
-                            <div className="max-h-60 overflow-y-auto rounded-md border dark:border-gray-700">
-                                <ul className="divide-y dark:divide-gray-700">
-                                    {warnings.map((warning, index) => (
-                                        <li key={index} className="p-3">
-                                            <p className="font-semibold">{warning.menteeName}</p>
-                                            <p className="text-sm text-gray-500 dark:text-gray-400">{warning.reason}</p>
-                                            <p className="text-xs text-red-500">Mentor ID: {warning.mentorId}</p>
-                                        </li>
-                                    ))}
-                                </ul>
+                    {lastCheckDate && !checking && (
+                        warnings.length > 0 ? (
+                            <div className="mt-4">
+                                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">{Icons.warning} Urgent Warnings ({warnings.length})</h3>
+                                <div className="max-h-60 overflow-y-auto rounded-md border dark:border-gray-700">
+                                    <ul className="divide-y dark:divide-gray-700">
+                                        {warnings.map((warning, index) => (
+                                            <li key={index} className="p-3">
+                                                <p><span className="font-semibold">{warning.menteeName}</span> (Mentor: {mentors.find(m => m.id === warning.mentorId)?.name || 'N/A'})</p>
+                                                <p className="text-sm text-gray-500 dark:text-gray-400">{warning.reason}</p>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
                             </div>
-                        </div>
-                    )}
-                    {warnings.length === 0 && !checking && (
-                        <p className="text-green-600 mt-4">No warnings found after the last check.</p>
+                        ) : (
+                            <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500 rounded-md">
+                                <p className="font-semibold text-green-800 dark:text-green-300">System Clear!</p>
+                                <p className="text-sm text-green-700 dark:text-green-400">No warnings found after the last check on {lastCheckDate.toLocaleString()}.</p>
+                            </div>
+                        )
                     )}
                 </div>
             </Card>

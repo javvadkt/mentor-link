@@ -89,6 +89,14 @@ export const MenteeMessaging: React.FC = () => {
         setMessages(prev => [...prev, sentMessage]);
         setNewMessage('');
     };
+    
+    const formatTime = (timestamp: string) => {
+        return new Date(timestamp).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+    };
 
     if (loading) return <ChatSkeleton isCoordinator={mentee.isCoordinator} />;
 
@@ -122,7 +130,7 @@ export const MenteeMessaging: React.FC = () => {
                         <div key={msg.id} className={`flex ${msg.senderId === mentee?.id ? 'justify-end' : 'justify-start'}`}>
                             <div className={`max-w-xs lg:max-w-md p-3 rounded-lg ${msg.senderId === mentee?.id ? 'bg-primary text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>
                                 <p className="break-words">{msg.content}</p>
-                                <p className="text-xs opacity-75 mt-1 text-right">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                <p className="text-xs opacity-75 mt-1 text-right">{formatTime(msg.timestamp)}</p>
                             </div>
                         </div>
                     ))}
