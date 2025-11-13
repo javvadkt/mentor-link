@@ -22,11 +22,13 @@ const ChangePasswordModal: React.FC<{
 }> = ({ isOpen, onClose, onConfirm, menteeName }) => {
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     if (newPassword.length < 6) {
       setError('Password must be at least 6 characters long.');
       return;
@@ -34,39 +36,57 @@ const ChangePasswordModal: React.FC<{
     setLoading(true);
     try {
       await onConfirm(newPassword);
-    } catch (err: any) {
-      // FIX: Display the specific error from the backend rather than a generic one.
-      // This provides more accurate feedback (e.g., about password strength).
-      setError(err.message || 'An unknown error occurred while updating the password.');
+      setSuccess('Password updated successfully!');
+      setTimeout(() => {
+          onClose();
+      }, 2000);
+    } catch (err: any)      {
+        setError(err.message || 'An unknown error occurred while updating the password.');
     } finally {
       setLoading(false);
     }
   };
 
+  // When modal is closed externally, reset its internal state
+  useEffect(() => {
+    if (!isOpen) {
+        setNewPassword('');
+        setError('');
+        setSuccess('');
+        setLoading(false);
+    }
+  }, [isOpen]);
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`Change Password for ${menteeName}`}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <p className="text-sm text-gray-600 dark:text-gray-300">Enter a new password for the mentee. They will be able to use this to log in immediately.</p>
-        <Input 
-          id="new-password" 
-          label="New Password" 
-          type="password" 
-          value={newPassword} 
-          onChange={(e) => {
-            setNewPassword(e.target.value);
-            // FIX: Clear error when user types, for better UX.
-            setError('');
-          }}
-          required
-        />
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-        <div className="flex justify-end space-x-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>Cancel</Button>
-          <Button type="submit" disabled={loading}>
-            {loading ? 'Updating...' : 'Update Password'}
-          </Button>
+       {success ? (
+        <div className="text-center p-4">
+            <h3 className="text-lg font-semibold text-green-600">Success</h3>
+            <p>{success}</p>
         </div>
-      </form>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-300">Enter a new password for the mentee. They will be able to use this to log in immediately.</p>
+            <Input 
+                id="new-password" 
+                label="New Password" 
+                type="password" 
+                value={newPassword} 
+                onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    setError('');
+                }}
+                required
+            />
+            {error && <p className="text-red-500 text-sm">{error}</p>}
+            <div className="flex justify-end space-x-2 pt-2">
+                <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>Cancel</Button>
+                <Button type="submit" disabled={loading}>
+                    {loading ? 'Updating...' : 'Update Password'}
+                </Button>
+            </div>
+        </form>
+      )}
     </Modal>
   );
 };
@@ -262,11 +282,8 @@ export const ManageMentees: React.FC = () => {
 
     const handleConfirmPasswordChange = async (newPassword: string) => {
         if (!viewingMentee) return;
-        
+        // The service call will throw an error on failure, which is caught by the modal.
         await SupabaseService.updateUserPasswordByAdmin(viewingMentee.id, newPassword);
-        
-        alert(`Password for ${viewingMentee.name} has been updated successfully.`);
-        handleClosePasswordModal();
     };
 
     const uniqueClasses = useMemo(() => {

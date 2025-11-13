@@ -1,6 +1,5 @@
 
 
-
 import { supabase } from './supabaseClient';
 import { 
     UserRole, AppUser, Mentee, Mentor, Admin, InvitationCode, Assignment, 
@@ -992,14 +991,24 @@ export class SupabaseService {
 
     static async updateUserPasswordByAdmin(userId: string, newPassword: string): Promise<{ success: boolean }> {
         // This requires a privileged RPC function 'admin_reset_user_password' to be created in the Supabase backend.
+        // The root cause of the previous error was this function was missing. An SQL script is provided to create it.
+        // The parameter order is irrelevant for named parameters, but we use a logical order for readability.
         const { error } = await supabase.rpc('admin_reset_user_password', {
             target_user_id: userId,
             new_password: newPassword
         });
 
         if (error) {
-            // The original logic here was too broad and could mask the true nature of a password-related
-            // error (e.g., strength vs. length). Propagating the raw error is more accurate.
+            // The error from this specific RPC might be a JSON string within the message property.
+            // We attempt to parse it to get a more user-friendly error from the underlying Auth service.
+            try {
+                const parsedMessage = JSON.parse(error.message);
+                if (parsedMessage && parsedMessage.msg) {
+                    throw new Error(parsedMessage.msg);
+                }
+            } catch (e) {
+                // Not a JSON string, fall through to the generic handler.
+            }
             handleSupabaseError(error, 'updateUserPasswordByAdmin');
         }
 
