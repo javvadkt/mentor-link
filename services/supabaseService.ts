@@ -42,7 +42,7 @@ const shapeUserData = (profile: any): AppUser => {
                 } : undefined,
                 adno: menteeData.adno,
                 class: menteeData.class,
-                photo: menteeData.photo_url,
+                photo: menteeData.photo,
                 points: menteeData.points,
                 isCoordinator: menteeData.is_coordinator,
                 personalDetails: menteeData.personal_details || {},
@@ -73,7 +73,7 @@ const shapeUserData = (profile: any): AppUser => {
             ...baseUser,
             role: UserRole.MENTOR,
             mentees: [], // This would require another query if needed immediately.
-            photo: profile.photo_url,
+            photo: profile.avatar_url,
         } as Mentor;
     }
 
@@ -302,11 +302,21 @@ export class SupabaseService {
     }
 
     // --- Data Manipulation ---
-    private static async uploadPhoto(file: File, userId: string, bucket: 'avatars' | 'mentor_avatars'): Promise<string> {
-        const filePath = `public/${userId}-${Date.now()}`;
-        const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, file);
-        if (uploadError) handleSupabaseError(uploadError, 'uploadPhoto');
-
+    private static async uploadPhoto(file: File, userId: string, bucket: 'avatars'): Promise<string> {
+        const fileExt = file.name.split('.').pop() || 'png';
+        // Use a folder-based path for easier and more secure RLS policies.
+        // This ensures a user's avatar is always in their own folder.
+        const filePath = `${userId}/avatar.${fileExt}`;
+    
+        const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: true, // Overwrite file if it exists, crucial for profile pictures.
+        });
+    
+        if (uploadError) {
+            handleSupabaseError(uploadError, 'uploadPhoto');
+        }
+    
         const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
         return data.publicUrl;
     }
@@ -372,7 +382,7 @@ export class SupabaseService {
             mentor_id: mentorId,
             adno: menteeData.adno,
             class: menteeData.class,
-            photo_url: photoUrl,
+            photo: photoUrl,
             is_coordinator: menteeData.isCoordinator,
             personal_details: menteeData.personalDetails,
             academic_details: menteeData.academicDetails,
@@ -403,7 +413,7 @@ export class SupabaseService {
         const menteeDataUpdates = {
             adno: updates.adno,
             class: updates.class,
-            photo_url: photoUrl,
+            photo: photoUrl,
             is_coordinator: updates.isCoordinator,
             personal_details: updates.personalDetails,
             academic_details: updates.academicDetails,
@@ -429,6 +439,104 @@ export class SupabaseService {
         const { error } = await supabase.rpc('delete_user', { user_id_to_delete: mentorId });
         if (error) handleSupabaseError(error, 'removeMentor');
         return { success: true };
+    }
+
+    static async addMentorByAdmin(mentorData: { username: string; password?: string; name: string; photoFile?: File }): Promise<Mentor> {
+        // Step 0: Get current admin session to restore it later.
+        const { data: { session: adminSession } } = await supabase.auth.getSession();
+        if (!adminSession) {
+            throw new Error("Authentication error: You must be logged in as an admin to add a mentor.");
+        }
+    
+        // Step 1: Create auth user for the new mentor. This temporarily signs in as the new user.
+        const email = `${mentorData.username}@mentorlink.local`;
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({
+            email,
+            password: mentorData.password!,
+            options: {
+                data: {
+                    username: mentorData.username,
+                    role: UserRole.MENTOR,
+                }
+            }
+        });
+    
+        // If signUp fails, we must restore the admin session before throwing.
+        if (signUpError) {
+            await supabase.auth.setSession(adminSession);
+            if (signUpError.message.includes('User already registered')) {
+                throw new Error('This username is already taken. Please choose another one.');
+            }
+            handleSupabaseError(signUpError, 'addMentorByAdmin (signUp)');
+        }
+        
+        const newMentorId = authData.user!.id;
+    
+        try {
+            // Step 2: Update profile with name. This is critical and must succeed.
+            const { error: nameUpdateError } = await supabase
+                .from('profiles')
+                .update({ name: mentorData.name })
+                .eq('id', newMentorId);
+    
+            if (nameUpdateError) {
+                // If this fails, something is very wrong. Throw to be handled by the main error logic.
+                throw nameUpdateError;
+            }
+    
+            // Step 3: Attempt to update photo. This is in a separate try/catch
+            // to prevent failure if the `avatar_url` column is missing.
+            try {
+                let avatarUrl: string | undefined = undefined;
+                if (mentorData.photoFile) {
+                    avatarUrl = await this.uploadPhoto(mentorData.photoFile, newMentorId, 'avatars');
+                } else {
+                    // Provide a default avatar
+                    avatarUrl = `https://ui-avatars.com/api/?name=${(mentorData.name || 'M').replace(/\s/g, '+')}&background=4f46e5&color=fff`;
+                }
+        
+                if (avatarUrl) {
+                    const { error: photoUpdateError } = await supabase
+                        .from('profiles')
+                        .update({ avatar_url: avatarUrl })
+                        .eq('id', newMentorId);
+                    
+                    if (photoUpdateError) {
+                        // This is the expected error. We'll log it but not let it crash the process.
+                        console.warn('Could not update mentor photo, `avatar_url` column might be missing.', photoUpdateError.message);
+                    }
+                }
+            } catch (photoError) {
+                 console.warn('An unexpected error occurred during photo update:', photoError);
+            }
+
+        } catch (error) {
+            // This will catch the critical name update error.
+            // We must restore the admin session before re-throwing.
+            await supabase.auth.setSession(adminSession);
+            handleSupabaseError(error, 'addMentorByAdmin (profile update)');
+        }
+    
+        // Step 4: Fetch the complete profile to return to the UI.
+        const { data: profileData, error: profileFetchError } = await supabase.from('profiles')
+            .select()
+            .eq('id', newMentorId)
+            .single();
+    
+        // Step 5: CRITICAL - Restore the admin's session.
+        const { error: sessionError } = await supabase.auth.setSession(adminSession);
+        if (sessionError) {
+            console.error("CRITICAL: Failed to restore admin session.", sessionError);
+            await supabase.auth.signOut(); 
+            throw new Error("Mentor created, but your admin session could not be restored. Please log in again.");
+        }
+    
+        // Handle fetch error after session is restored.
+        if (profileFetchError || !profileData) {
+            handleSupabaseError(profileFetchError || new Error('Failed to fetch profile after mentor creation'), 'addMentorByAdmin (profile fetch)');
+        }
+        
+        return shapeUserData(profileData) as Mentor;
     }
 
     static async bulkAddMentees(menteesData: any[]): Promise<{ successes: number; failures: { data: any; error: string }[] }> {
@@ -764,19 +872,20 @@ export class SupabaseService {
             status: data.status,
         } as ScheduledMeeting;
     }
-    static async getAllMentors(): Promise<Mentor[]> { 
-         const { data, error } = await supabase
+    static async getAllMentors(): Promise<Mentor[]> {
+        const { data, error } = await supabase
             .from('profiles')
             .select('*, mentees_data!mentor_id(profile_id)')
             .eq('role', UserRole.MENTOR);
-         if(error) handleSupabaseError(error, 'getAllMentors');
-         return data!.map(p => ({
+        if (error) handleSupabaseError(error, 'getAllMentors');
+        return data!.map(p => ({
             id: p.id,
             username: p.username,
             role: p.role,
             name: p.name,
             mentees: p.mentees_data.map((m: any) => m.profile_id),
-         }));
+            photo: p.avatar_url,
+        }));
     }
     static async getAllMentees(): Promise<Mentee[]> { 
         const { data, error } = await supabase
@@ -958,19 +1067,73 @@ export class SupabaseService {
         return { success: true };
     }
 
-    static async updateMentorProfile(mentorId: string, updates: { name?: string; username?: string, photoFile?: File }): Promise<Mentor> { 
-        const profileUpdates: { name?: string; username?: string; photo_url?: string } = {};
+    static async updateMentorProfile(mentorId: string, updates: { name?: string; username?: string; photoFile?: File }): Promise<Mentor> {
+        const profileUpdates: { name?: string; username?: string } = {};
         if (updates.name) profileUpdates.name = updates.name;
         if (updates.username) profileUpdates.username = updates.username;
-
-        if (updates.photoFile) {
-            const photoUrl = await this.uploadPhoto(updates.photoFile, mentorId, 'mentor_avatars');
-            profileUpdates.photo_url = photoUrl;
+    
+        // Step 1: Update non-photo fields.
+        if (Object.keys(profileUpdates).length > 0) {
+            const { error } = await supabase
+                .from('profiles')
+                .update(profileUpdates)
+                .eq('id', mentorId);
+            
+            if (error) {
+                if (error.message.includes('violates row-level security policy')) {
+                    throw new Error('You do not have permission to update your profile. Please contact an administrator.');
+                }
+                handleSupabaseError(error, 'updateMentorProfile (text fields)');
+            }
         }
-
-        const { data, error } = await supabase.from('profiles').update(profileUpdates).eq('id', mentorId).select().single();
-        if (error) handleSupabaseError(error, 'updateMentorProfile');
-        return data as Mentor;
+    
+        // Step 2: Handle photo upload and update separately.
+        if (updates.photoFile) {
+            let photoUrl: string | undefined;
+            try {
+                photoUrl = await this.uploadPhoto(updates.photoFile, mentorId, 'avatars');
+            } catch (uploadError: any) {
+                if (uploadError.message && (uploadError.message.includes('new row violates row-level security policy') || uploadError.message.includes('insufficient permissions'))) {
+                     throw new Error('Could not upload photo due to a database security policy. Please contact an administrator.');
+                }
+                throw uploadError;
+            }
+    
+            try {
+                const { error: photoUpdateError } = await supabase
+                    .from('profiles')
+                    .update({ avatar_url: photoUrl })
+                    .eq('id', mentorId);
+                
+                if (photoUpdateError) {
+                    if (photoUpdateError.message.includes("Could not find the 'avatar_url' column")) {
+                        throw new Error("Profile details updated, but the photo could not be saved. The 'avatar_url' column is missing in the database. Please contact an administrator.");
+                    }
+                    if (photoUpdateError.message.includes('violates row-level security policy')) {
+                        throw new Error('Profile details updated, but the photo URL could not be saved due to a database security policy.');
+                    }
+                    throw photoUpdateError;
+                }
+            } catch (error) {
+                if (error instanceof Error && (error.message.startsWith('Profile details updated') || error.message.startsWith('Could not upload photo'))) {
+                    throw error;
+                }
+                handleSupabaseError(error, 'updateMentorProfile (photo)');
+            }
+        }
+        
+        // Step 3: Fetch the latest profile data to return to the UI.
+        const { data: finalProfile, error: fetchError } = await supabase
+            .from('profiles')
+            .select()
+            .eq('id', mentorId)
+            .single();
+        
+        if (fetchError || !finalProfile) {
+            handleSupabaseError(fetchError || new Error("Could not refetch profile after update."), 'updateMentorProfile (refetch)');
+        }
+    
+        return shapeUserData(finalProfile) as Mentor;
     }
 
     static async updateMentorPassword(mentorId: string, currentPassword?: string, newPassword?: string): Promise<{ success: boolean }> { 

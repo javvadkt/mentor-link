@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { Card } from '../../components/Card';
@@ -101,7 +102,7 @@ export const MentorAccount: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Profile Photo</label>
                         <div className="mt-1 flex items-center space-x-4">
                             <img
-                                src={photo || `https://ui-avatars.com/api/?name=${name.replace(' ', '+')}&background=4f46e5&color=fff`}
+                                src={photo || `https://ui-avatars.com/api/?name=${(name || '').replace(/\s/g, '+')}&background=4f46e5&color=fff`}
                                 alt="Preview"
                                 className="w-24 h-24 rounded-full object-cover bg-gray-200 dark:bg-gray-600"
                             />

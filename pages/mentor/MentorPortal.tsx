@@ -47,10 +47,13 @@ const ProfileMenu: React.FC = () => {
 
     if (!user) return <div className="w-8 h-8"></div>;
 
+    const mentor = user as Mentor;
+    const avatarUrl = mentor.photo || `https://ui-avatars.com/api/?name=${(mentor.name || mentor.username || '').replace(/\s/g, '+')}&background=4f46e5&color=fff`;
+
     return (
         <div className="relative" ref={menuRef}>
             <button onClick={() => setIsOpen(!isOpen)} className="focus:outline-none rounded-full p-1 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                <img src={(user as Mentor).photo || `https://ui-avatars.com/api/?name=${user.name.replace(' ', '+')}&background=4f46e5&color=fff`} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
+                <img src={avatarUrl} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
             </button>
             {isOpen && (
                 <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-20">
@@ -154,9 +157,16 @@ export const MentorPortal: React.FC = () => {
             <div className="p-4 border-t dark:border-gray-700 space-y-4">
                 <NavItem icon={Icons.settings} label="My Account" isActive={currentPage === 'account'} onClick={() => handleNavClick('account')} />
                 <Feedback />
-                <div>
-                    <p className="font-semibold text-gray-800 dark:text-gray-200">{user?.name}</p>
-                    <p className="text-sm text-gray-500">{user?.username}</p>
+                <div className="flex items-center">
+                    <img
+                        src={(user as Mentor).photo || `https://ui-avatars.com/api/?name=${(user?.name || user?.username || '').replace(/\s/g, '+')}&background=4f46e5&color=fff`}
+                        alt={user?.name}
+                        className="w-10 h-10 rounded-full mr-3 object-cover bg-gray-200 dark:bg-gray-600"
+                    />
+                    <div>
+                        <p className="font-semibold text-gray-800 dark:text-gray-200">{user?.name}</p>
+                        <p className="text-sm text-gray-500">{user?.username}</p>
+                    </div>
                 </div>
                 <Button onClick={logout} variant="danger" className="w-full flex items-center justify-center space-x-2" disabled={isLoggingOut}>
                     {isLoggingOut ? <Spinner size="sm" color="white" /> : Icons.logout}
