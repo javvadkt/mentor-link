@@ -135,7 +135,7 @@ export class SupabaseService {
 
     static async signIn(username: string, password?: string): Promise<{ user: AppUser }> {
         // Assuming email is derived from username for Supabase Auth
-        const email = `${username}@mentorlink.local`;
+        const email = `${username}@menteelink.local`;
         
         let authData;
         try {
@@ -211,7 +211,7 @@ export class SupabaseService {
             throw new Error('This invitation code has been deactivated. Please contact an administrator.');
         }
         
-        const email = `${username}@mentorlink.local`;
+        const email = `${username}@menteelink.local`;
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
             email,
             password: password!,
@@ -251,7 +251,7 @@ export class SupabaseService {
             throw new Error('Invalid Admin Secret Code.');
         }
 
-        const email = `${username}@mentorlink.local`;
+        const email = `${username}@menteelink.local`;
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
             email,
             password: password!,
@@ -329,7 +329,7 @@ export class SupabaseService {
         }
 
         // Step 1: Create auth user for the new mentee. This will temporarily log in as the new mentee.
-        const email = `${menteeData.username}@mentorlink.local`;
+        const email = `${menteeData.username}@menteelink.local`;
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
             email,
             password: menteeData.password!,
@@ -449,7 +449,7 @@ export class SupabaseService {
         }
     
         // Step 1: Create auth user for the new mentor. This temporarily signs in as the new user.
-        const email = `${mentorData.username}@mentorlink.local`;
+        const email = `${mentorData.username}@menteelink.local`;
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
             email,
             password: mentorData.password!,

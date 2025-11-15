@@ -65,7 +65,7 @@ export const Feedback: React.FC = () => {
                 ) : (
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                            Have a suggestion or encountered an issue? Let us know. Your feedback helps us improve MentorLink.
+                            Have a suggestion or encountered an issue? Let us know. Your feedback helps us improve MenteeLink.
                         </p>
                         <div>
                             <label htmlFor="feedback-content" className="sr-only">Feedback</label>

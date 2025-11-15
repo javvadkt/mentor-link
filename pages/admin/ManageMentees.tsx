@@ -93,16 +93,17 @@ const ChangePasswordModal: React.FC<{
 
 
 const HistoryModal: React.FC<{
+    isOpen: boolean;
     mentee: Mentee;
     points: PointsLog[];
     meetings: Meeting[];
     loading: boolean;
     onClose: () => void;
-}> = ({ mentee, points, meetings, loading, onClose }) => {
+}> = ({ isOpen, mentee, points, meetings, loading, onClose }) => {
     const [activeTab, setActiveTab] = useState<'points' | 'meetings'>('points');
 
     return (
-        <Modal isOpen={true} onClose={onClose} title={`History for ${mentee.name}`}>
+        <Modal isOpen={isOpen} onClose={onClose} title={`History for ${mentee.name}`}>
             <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
                     <button
